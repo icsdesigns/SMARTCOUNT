@@ -92,7 +92,7 @@ fun GroupsScreen(vm: MainViewModel, state: UiState, modifier: Modifier = Modifie
     // Sobrevive a abrir y cerrar un grupo: al volver, la búsqueda sigue puesta.
     var query by rememberSaveable { mutableStateOf("") }
 
-    // "+ Gasto" desde el widget abre el grupo activo directamente.
+    // "+ Movimiento" desde el widget abre el grupo activo directamente.
     val newExpenseSignal by vm.newExpenseRequests.collectAsStateWithLifecycle()
     LaunchedEffect(newExpenseSignal) {
         if (newExpenseSignal > 0 && state.selectedId != null) vm.openGroup(state.selectedId)

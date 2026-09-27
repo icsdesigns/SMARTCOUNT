@@ -472,16 +472,22 @@ un banco significa desactivarlo, no «desactivarlo salvo en modo apagado».
 
 ## Widgets
 
-Dos widgets escritos con **Glance** (Compose para pantalla de inicio), con el
+Tres widgets escritos con **Glance** (Compose para pantalla de inicio), con el
 mismo lenguaje visual que la app y modo claro/oscuro:
 
-- **Saldo del grupo** (3×2): grupo activo, cuánto te deben o debes, y dos
-  accesos directos: *+ Gasto* y *Bandeja* (con el número de pendientes).
-- **Añadir gasto** (1×1): abre directamente la hoja de nuevo gasto.
+- **Grupos** (4×2): rejilla con los grupos activos, su emoji, su título y la
+  cifra que los resume (te deben, debes o ahorrado). Tocar una celda abre el
+  grupo; *+ Movimiento* abre el alta. Las columnas se ajustan al ancho.
+- **Un grupo** (3×3): el grupo que elijas al ponerlo (se puede cambiar
+  manteniéndolo pulsado), con el saldo de cada miembro — o lo ingresado y lo
+  gastado en uno de ahorro — y sus últimos movimientos, con scroll.
+- **Bandeja pendiente** (3×2): los movimientos detectados por asignar, con
+  scroll. Tocar uno abre directamente su hoja de asignación.
 
-Ambos leen `GroupCache`, una instantánea en disco de los grupos y sus balances,
-porque el widget se dibuja en el proceso del *launcher* y no puede hacer red.
-La caché se reescribe tras cada carga de grupos y tras cada asignación, y
+Los dos primeros leen `GroupCache`, una instantánea en disco de los grupos, sus
+saldos y sus últimos movimientos, porque el widget se dibuja en el proceso del
+*launcher* y no puede hacer red; el de la bandeja lee la base de datos local.
+La caché se reescribe tras cada carga de grupos y cada cambio en la bandeja, y
 entonces se repintan los widgets.
 
 ## Qué avisa y qué no
