@@ -64,7 +64,8 @@ fun SettingsScreen(
     vm: MainViewModel,
     state: UiState,
     updateVm: UpdateViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onShowTour: () -> Unit = {}
 ) {
     val c = SmartTheme.colors
     val context = LocalContext.current
@@ -335,6 +336,8 @@ fun SettingsScreen(
                             )
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                    SecondaryButton("Ver el tour de la aplicación", Modifier.fillMaxWidth(), onShowTour)
                     Spacer(Modifier.height(16.dp))
                     Text(
                         "SmartCount usa la API interna de Tricount, que no es pública ni está " +

@@ -70,6 +70,8 @@ import com.silab.smartcount.ui.MainViewModel
 import com.silab.smartcount.ui.SavingsScreen
 import com.silab.smartcount.ui.SettingsScreen
 import com.silab.smartcount.ui.StatsScreen
+import com.silab.smartcount.ui.TourDialog
+import com.silab.smartcount.ui.TourPrefs
 import com.silab.smartcount.ui.UpdateSheet
 import com.silab.smartcount.ui.theme.SmartCountTheme
 import com.silab.smartcount.notif.DetectionNotifier
@@ -161,7 +163,14 @@ fun AppRoot(
     val inbox by vm.inbox.collectAsStateWithLifecycle()
     val update by updateVm.state.collectAsStateWithLifecycle()
     var tab by remember { mutableStateOf(Tab.GROUPS) }
-    val activity = LocalContext.current as? Activity
+    val context = LocalContext.current
+    val activity = context as? Activity
+
+    // El tour se abre solo la primera vez que arranca cada versión nueva, y
+    // desde Ajustes cuando se quiera repasar.
+    var showTour by remember {
+        mutableStateOf(TourPrefs.shouldShow(context, updateVm.installedVersionCode))
+    }
 
     // Comprobación silenciosa del arranque: si falla, no molesta a nadie.
     LaunchedEffect(Unit) { updateVm.checkOnLaunch() }
@@ -269,7 +278,7 @@ fun AppRoot(
                     Tab.SAVINGS -> SavingsScreen(vm, state)
                     Tab.STATS -> StatsScreen(vm, state)
                     Tab.INBOX -> InboxScreen(vm, state, inbox)
-                    Tab.SETTINGS -> SettingsScreen(vm, state, updateVm)
+                    Tab.SETTINGS -> SettingsScreen(vm, state, updateVm, onShowTour = { showTour = true })
                 }
             }
 
@@ -287,7 +296,13 @@ fun AppRoot(
             )
         }
 
-        if (update.phase != UpdatePhase.IDLE && update.phase != UpdatePhase.CHECKING) {
+        // El tour manda mientras está abierto: dos ventanas apiladas no se leen.
+        if (showTour) {
+            TourDialog(updateVm) {
+                TourPrefs.markSeen(context, updateVm.installedVersionCode)
+                showTour = false
+            }
+        } else if (update.phase != UpdatePhase.IDLE && update.phase != UpdatePhase.CHECKING) {
             UpdateSheet(
                 state = update,
                 installedVersionName = updateVm.installedVersionName,
