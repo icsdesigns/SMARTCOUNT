@@ -35,7 +35,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -89,6 +91,7 @@ fun InboxScreen(
     var assigning by remember { mutableStateOf<InboxEntry?>(null) }
     var preselected by remember { mutableStateOf<Int?>(null) }
     var showHistory by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
     val history by vm.inboxHistory.collectAsStateWithLifecycle()
 
     // La notificación abre directamente la hoja de ese movimiento, y con el
@@ -120,8 +123,13 @@ fun InboxScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Bandeja", style = MaterialTheme.typography.headlineLarge, color = c.primaryText)
-                if (history.isNotEmpty()) {
-                    SecondaryButton("Enviados") { showHistory = true }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (inbox.isNotEmpty()) {
+                        SecondaryButton("Limpiar") { confirmClear = true }
+                    }
+                    if (history.isNotEmpty()) {
+                        SecondaryButton("Enviados") { showHistory = true }
+                    }
                 }
             }
         }
@@ -218,6 +226,17 @@ fun InboxScreen(
 
     if (showHistory) {
         HistorySheet(history, state, fmt) { showHistory = false }
+    }
+
+    if (confirmClear) {
+        ConfirmSheet(
+            title = "Limpiar la bandeja",
+            body = "Se quita todo lo pendiente de categorizar, de los tres cajones. No se " +
+                "envía nada a Tricount y lo ya enviado no se toca.",
+            confirmLabel = if (inbox.size == 1) "Limpiar 1 registro" else "Limpiar ${inbox.size} registros",
+            onDismiss = { confirmClear = false },
+            onConfirm = { vm.clearInbox(); confirmClear = false }
+        )
     }
 }
 
@@ -452,6 +471,42 @@ private fun AssignSheet(
                     modifier = Modifier.padding(horizontal = ScreenPadding)
                 )
                 Spacer(Modifier.height(16.dp))
+            }
+
+            // Lo que cayó en «Otros eventos» no se configura: primero hay que
+            // decidir qué es. Enseñar grupo, importe y reparto de algo que
+            // probablemente no es un movimiento solo alargaba la hoja.
+            if (entry.classification == InboxClass.OTHER) {
+                item {
+                    Column(Modifier.padding(horizontal = ScreenPadding)) {
+                        Text(
+                            "¿Qué es esto?",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = c.primaryText
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Llegó de una app que miramos, pero no parece un cargo ni un abono. " +
+                                "Si lo es, márcalo y podrás asignarlo a un grupo.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = c.secondaryText
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FooterAction("Es un movimiento bancario", c.positive) {
+                                vm.classifyInboxEntry(entry, InboxClass.BANK)
+                            }
+                            FooterAction("No es bancario · dejar de seguir «${entry.bankLabel}»", NonBankFill) {
+                                vm.classifyInboxEntry(entry, InboxClass.NON_BANK); onDismiss()
+                            }
+                            FooterAction("Eliminar este movimiento", c.negative) {
+                                vm.ignoreInboxEntry(entry); onDismiss()
+                            }
+                        }
+                        Spacer(Modifier.height(24.dp))
+                    }
+                }
+                return@LazyColumn
             }
 
             // Calibración, arriba del todo cuando no está en el cajón de los
@@ -720,13 +775,18 @@ private fun AssignSheet(
                                     InboxClass.OTHER -> "Moverlo a otros eventos"
                                     InboxClass.NON_BANK ->
                                         "No es bancario · dejar de seguir «${entry.bankLabel}»"
+                                },
+                                when (target) {
+                                    InboxClass.BANK -> c.positive
+                                    InboxClass.OTHER -> c.brand
+                                    InboxClass.NON_BANK -> NonBankFill
                                 }
                             ) {
                                 vm.classifyInboxEntry(entry, target)
                                 if (target != InboxClass.BANK) onDismiss()
                             }
                         }
-                        FooterAction("Ignorar este movimiento") {
+                        FooterAction("Eliminar este movimiento", c.negative) {
                             vm.ignoreInboxEntry(entry); onDismiss()
                         }
                     }
@@ -871,27 +931,31 @@ private fun GroupPicker(
     }
 }
 
+/** Ámbar para «no es bancario»: ni el verde de sí ni el rojo de eliminar. */
+private val NonBankFill = Color(0xFFD9822B)
+
 /**
- * Las salidas de la hoja: la misma píldora que el botón de enviar, pero
- * hueca. Se ven y se pulsan igual de bien; no compiten con la acción
- * principal porque no llevan relleno ni peso en la letra.
+ * Las salidas de la hoja: la misma píldora que el botón de enviar, rellena
+ * cada una de su color. Huecas se confundían entre sí; con color se
+ * distingue de un vistazo marcar como bancario (verde), apartar a otros
+ * eventos (azul), dejar de seguir la app (ámbar) y eliminar (rojo).
  */
 @Composable
-private fun FooterAction(text: String, onClick: () -> Unit) {
-    val c = SmartTheme.colors
+private fun FooterAction(text: String, fill: Color, onClick: () -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(100))
-            .border(1.dp, c.divider, RoundedCornerShape(100))
+            .background(fill)
             .clickable(onClick = onClick)
             .padding(vertical = 13.dp, horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text,
-            color = c.secondaryText,
+            color = Color.White,
             style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center
         )
     }

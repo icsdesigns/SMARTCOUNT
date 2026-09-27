@@ -1,10 +1,15 @@
 package com.silab.smartcount.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +27,9 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -39,9 +46,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.silab.smartcount.data.api.Category
 import com.silab.smartcount.data.api.Member
@@ -154,6 +163,7 @@ fun GroupsScreen(vm: MainViewModel, state: UiState, modifier: Modifier = Modifie
                 GroupCard(
                     group = g,
                     savings = state.isSavings(g.id),
+                    unlinked = state.isUnlinked(g.id),
                     summary = if (state.isSavings(g.id)) vm.savingsSummary(g) else null
                 ) { vm.openGroup(g.id) }
             }
@@ -196,8 +206,8 @@ fun GroupsScreen(vm: MainViewModel, state: UiState, modifier: Modifier = Modifie
     if (creating) {
         CreateGroupSheet(
             onDismiss = { creating = false },
-            onCreate = { title, currency, members ->
-                vm.createGroup(title, currency, members)
+            onCreate = { group ->
+                vm.createGroup(group)
                 creating = false
             }
         )
@@ -216,6 +226,7 @@ fun GroupsScreen(vm: MainViewModel, state: UiState, modifier: Modifier = Modifie
 private fun GroupCard(
     group: Tricount,
     savings: Boolean,
+    unlinked: Boolean,
     summary: SavingsSummary?,
     onClick: () -> Unit
 ) {
@@ -245,6 +256,10 @@ private fun GroupCard(
             if (savings) {
                 Spacer(Modifier.width(6.dp))
                 Text("AHORRO", style = SectionTitle, color = c.brand)
+            }
+            if (unlinked) {
+                Spacer(Modifier.width(6.dp))
+                Text("SOLO AQUÍ", style = SectionTitle, color = c.secondaryText)
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -315,9 +330,7 @@ fun GroupDetail(
     var editing by remember { mutableStateOf<Transaction?>(null) }
     var creating by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Transaction?>(null) }
-    var pickingMe by remember { mutableStateOf(false) }
-    var pickingIncome by remember { mutableStateOf(false) }
-    var pickingSpender by remember { mutableStateOf(false) }
+    var editingRoles by remember { mutableStateOf(false) }
     var managing by remember { mutableStateOf(false) }
 
     val isSavings = state.isSavings(t.id)
@@ -421,15 +434,22 @@ fun GroupDetail(
             // significa nada: la API no lo dice en los grupos a los que esta
             // instalación se unió por enlace, que son casi todos.
             item {
-                IdentityRow(
+                RolesPanel(
                     t = t,
                     savings = isSavings,
                     incomeMember = incomeMember,
                     spenderMember = spenderMember,
-                    onPickMe = { pickingMe = true },
-                    onPickIncome = { pickingIncome = true },
-                    onPickSpender = { pickingSpender = true }
+                    onClick = { editingRoles = true }
                 )
+            }
+
+            if (state.isUnlinked(t.id)) {
+                item {
+                    UnlinkedNotice(
+                        t = t,
+                        onLinked = { vm.markLinked(t) }
+                    )
+                }
             }
 
             item {
@@ -538,39 +558,17 @@ fun GroupDetail(
         )
     }
 
-    if (pickingMe) {
-        MemberPickerSheet(
-            title = "¿Quién eres tú en este grupo?",
-            body = "Tricount no siempre dice a qué miembro corresponde esta instalación, " +
-                "y sin saberlo no se puede calcular tu balance. Se guarda solo en este móvil.",
+    if (editingRoles) {
+        RolesDialog(
             members = activeMembers,
-            selected = t.linkedMember,
-            onDismiss = { pickingMe = false },
-            onPick = { vm.setMyMember(t, it); pickingMe = false }
-        )
-    }
-
-    if (pickingIncome) {
-        MemberPickerSheet(
-            title = "¿De dónde vienen los ingresos?",
-            body = "Lo que cree este miembro cuenta como dinero que entra; todo lo demás, " +
-                "como dinero que sale.",
-            members = activeMembers,
-            selected = incomeMember,
-            onDismiss = { pickingIncome = false },
-            onPick = { vm.setIncomeMember(t, it); pickingIncome = false }
-        )
-    }
-
-    if (pickingSpender) {
-        MemberPickerSheet(
-            title = "¿Quién gasta?",
-            body = "Los gastos de este grupo se registran a su nombre, y los ingresos van " +
-                "de la fuente de ingresos hacia él.",
-            members = activeMembers,
-            selected = spenderMember,
-            onDismiss = { pickingSpender = false },
-            onPick = { vm.setSpenderMember(t, it); pickingSpender = false }
+            savings = isSavings,
+            me = t.linkedMember,
+            incomeMember = incomeMember,
+            spenderMember = spenderMember,
+            onPickMe = { vm.setMyMember(t, it) },
+            onPickIncome = { vm.setIncomeMember(t, it) },
+            onPickSpender = { vm.setSpenderMember(t, it) },
+            onDismiss = { editingRoles = false }
         )
     }
 }
@@ -614,52 +612,166 @@ internal fun Figure(
     }
 }
 
-/** Quién eres tú, y los dos papeles si el grupo es de ahorro. */
+/**
+ * Los papeles del grupo en una sola franja horizontal: quién eres tú y, si es
+ * de ahorro, de dónde vienen los ingresos y quién gasta. Eran tres filas a
+ * lo ancho que empujaban los movimientos fuera de la pantalla; como píldoras
+ * en fila caben en la altura de una. Cualquiera abre la ventana donde se
+ * cambian los tres.
+ */
 @Composable
-private fun IdentityRow(
+private fun RolesPanel(
     t: Tricount,
     savings: Boolean,
     incomeMember: Member?,
     spenderMember: Member?,
-    onPickMe: () -> Unit,
-    onPickIncome: () -> Unit,
-    onPickSpender: () -> Unit
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = ScreenPadding),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        RoleChip("Tú", t.linkedMember?.displayName, onClick)
+        if (savings) {
+            RoleChip("Ingresos", incomeMember?.displayName, onClick)
+            RoleChip("Gasta", spenderMember?.displayName, onClick)
+        }
+        RoleChip("Papeles", "Configurar", onClick, accent = true)
+    }
+}
+
+/** Una píldora de papel: la etiqueta pequeña encima y el nombre debajo. */
+@Composable
+private fun RoleChip(label: String, value: String?, onClick: () -> Unit, accent: Boolean = false) {
+    val c = SmartTheme.colors
+    Column(
+        Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(c.chipBackground)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(label.uppercase(), style = SectionTitle, color = c.secondaryText, maxLines = 1)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            value ?: "Elegir",
+            style = MaterialTheme.typography.titleSmall,
+            color = if (value == null || accent) c.brand else c.primaryText,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * La ventana emergente de los papeles. Cada toque se guarda al momento —no
+ * hay nada que confirmar— y la ventana sigue abierta para cambiar el resto.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun RolesDialog(
+    members: List<Member>,
+    savings: Boolean,
+    me: Member?,
+    incomeMember: Member?,
+    spenderMember: Member?,
+    onPickMe: (Member) -> Unit,
+    onPickIncome: (Member) -> Unit,
+    onPickSpender: (Member) -> Unit,
+    onDismiss: () -> Unit
 ) {
     val c = SmartTheme.colors
-    val me = t.linkedMember
-    Column {
-        SmartRow(
-            title = me?.displayName ?: "Elegir quién eres",
-            subtitle = if (me == null) {
-                "Sin esto no hay balance que enseñar"
-            } else {
-                "Tú, en este grupo"
-            },
-            value = "Cambiar",
-            valueColor = if (me == null) c.brand else c.secondaryText,
-            leading = { Initials(me?.displayName ?: "?") },
-            onClick = onPickMe
+
+    @Composable
+    fun RoleSection(title: String, body: String, selected: Member?, onPick: (Member) -> Unit) {
+        Text(title.uppercase(), style = SectionTitle, color = c.secondaryText)
+        Spacer(Modifier.height(4.dp))
+        Text(body, style = MaterialTheme.typography.bodySmall, color = c.secondaryText)
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            members.forEach { m ->
+                PillChip(m.displayName, m.uuid == selected?.uuid) { onPick(m) }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(c.background)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+        ) {
+            Text("Papeles en el grupo", style = MaterialTheme.typography.titleLarge, color = c.primaryText)
+            Spacer(Modifier.height(16.dp))
+            RoleSection(
+                "Quién eres tú",
+                "De aquí sale tu balance. Se guarda en este móvil y no cambia solo.",
+                me, onPickMe
+            )
+            if (savings) {
+                RoleSection(
+                    "Fuente de ingresos",
+                    "Lo que cree este miembro cuenta como dinero que entra.",
+                    incomeMember, onPickIncome
+                )
+                RoleSection(
+                    "Quién gasta",
+                    "Los gastos se registran a su nombre y los ingresos van hacia él.",
+                    spenderMember, onPickSpender
+                )
+            }
+            PrimaryButton("Hecho", onClick = onDismiss)
+        }
+    }
+}
+
+/**
+ * Aviso de un grupo creado aquí que no está en tu cuenta de Tricount. Se
+ * abre en la app oficial con su enlace; y como la API no deja comprobar si ya
+ * lo hiciste, el aviso se quita a mano.
+ */
+@Composable
+private fun UnlinkedNotice(t: Tricount, onLinked: () -> Unit) {
+    val c = SmartTheme.colors
+    val context = LocalContext.current
+    Column(
+        Modifier
+            .padding(start = ScreenPadding, end = ScreenPadding, top = 12.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(c.chipBackground)
+            .padding(16.dp)
+    ) {
+        Text("Desvinculado de Tricount", style = MaterialTheme.typography.titleMedium, color = c.primaryText)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Se creó en SmartCount y no está en tu cuenta de Tricount. Ábrelo allí con su " +
+                "enlace si quieres tenerlo también en la app oficial.",
+            style = MaterialTheme.typography.bodySmall,
+            color = c.secondaryText
         )
-        SmartDivider()
-        if (savings) {
-            SmartRow(
-                title = incomeMember?.displayName ?: "Elegir la fuente de ingresos",
-                subtitle = "De aquí vienen los ingresos del grupo",
-                value = "Cambiar",
-                valueColor = if (incomeMember == null) c.brand else c.secondaryText,
-                leading = { Initials(incomeMember?.displayName ?: "?") },
-                onClick = onPickIncome
-            )
-            SmartDivider()
-            SmartRow(
-                title = spenderMember?.displayName ?: "Elegir quién gasta",
-                subtitle = "A su nombre se registran los gastos",
-                value = "Cambiar",
-                valueColor = if (spenderMember == null) c.brand else c.secondaryText,
-                leading = { Initials(spenderMember?.displayName ?: "?") },
-                onClick = onPickSpender
-            )
-            SmartDivider()
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (t.publicToken.isNotBlank()) {
+                PillChip("Abrir en Tricount", true) {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://tricount.com/${t.publicToken}"))
+                        )
+                    }
+                }
+            }
+            PillChip("Ya está en Tricount", false, onLinked)
         }
     }
 }
@@ -913,16 +1025,41 @@ private fun AddGroupChoiceSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Crear un grupo, y dejar dicho desde el principio quién eres tú en él y, si
+ * es de ahorro, quién hace los ingresos. Sin eso el grupo nacía con el
+ * balance en «—» hasta que se entraba a decirlo.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun CreateGroupSheet(
     onDismiss: () -> Unit,
-    onCreate: (String, String, List<String>) -> Unit
+    onCreate: (NewGroup) -> Unit
 ) {
     val c = SmartTheme.colors
     var title by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("EUR") }
     var names by remember { mutableStateOf(listOf("")) }
+    var meField by remember { mutableStateOf<Int?>(null) }
+    var savings by remember { mutableStateOf(false) }
+    // Posición en `names` de quien hace los ingresos; null = crear «Ingresos».
+    var incomeField by remember { mutableStateOf<Int?>(null) }
+
+    // Los papeles apuntan a campos; si el campo se vacía, el papel se suelta.
+    val filled = names.indices.filter { names[it].isNotBlank() }
+    val me = meField?.takeIf { it in filled }
+    val income = incomeField?.takeIf { it in filled && it != me }
+    val valid = title.isNotBlank() && currency.length == 3 && me != null
+
+    @Composable
+    fun Hint(text: String) {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodySmall,
+            color = c.secondaryText,
+            modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 4.dp)
+        )
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.background, dragHandle = null) {
         LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -933,6 +1070,16 @@ private fun CreateGroupSheet(
                     SmartField(title, { title = it }, "Nombre del grupo")
                     Spacer(Modifier.height(12.dp))
                     SmartField(currency, { currency = it.uppercase().take(3) }, "Moneda")
+                }
+            }
+            item {
+                SectionHeader("Tipo")
+                Row(
+                    Modifier.padding(horizontal = ScreenPadding),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PillChip("Grupo normal", !savings) { savings = false }
+                    PillChip("Grupo de ahorro", savings) { savings = true }
                 }
             }
             item { SectionHeader("Miembros") }
@@ -956,18 +1103,65 @@ private fun CreateGroupSheet(
                             .padding(vertical = 12.dp)
                     )
                 }
+                Hint("Escribe a todos, tú también. Se pueden añadir más después.")
             }
+
+            item {
+                SectionHeader("¿Quién eres tú?")
+                if (filled.isEmpty()) {
+                    Hint("Escribe los nombres y elige aquí el tuyo.")
+                } else {
+                    FlowRow(
+                        Modifier.padding(horizontal = ScreenPadding),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        filled.forEach { i ->
+                            PillChip(names[i].trim(), me == i) { meField = i }
+                        }
+                    }
+                }
+            }
+
+            if (savings) {
+                item {
+                    SectionHeader("¿Quién realiza los ingresos?")
+                    FlowRow(
+                        Modifier.padding(horizontal = ScreenPadding),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PillChip("Nuevo miembro «Ingresos»", income == null) { incomeField = null }
+                        filled.filter { it != me }.forEach { i ->
+                            PillChip(names[i].trim(), income == i) { incomeField = i }
+                        }
+                    }
+                    Hint("Lo que cree este miembro cuenta como dinero que entra; tú eres quien gasta.")
+                }
+            }
+
             item {
                 Column(Modifier.padding(ScreenPadding)) {
                     Text(
-                        "Tú ya cuentas como miembro; añade a los demás. También se pueden " +
-                            "añadir después.",
+                        "Se crea desvinculado de tu cuenta de Tricount: no aparecerá en la app " +
+                            "oficial hasta que abras allí su enlace.",
                         style = MaterialTheme.typography.bodySmall,
                         color = c.secondaryText
                     )
                     Spacer(Modifier.height(16.dp))
-                    PrimaryButton("Crear", title.isNotBlank() && currency.length == 3) {
-                        onCreate(title, currency, names.map { it.trim() }.filter { it.isNotEmpty() })
+                    PrimaryButton("Crear", valid) {
+                        // Solo los campos con nombre, y los papeles traducidos a
+                        // su posición en esa lista.
+                        onCreate(
+                            NewGroup(
+                                title = title.trim(),
+                                currency = currency,
+                                members = filled.map { names[it].trim() },
+                                meIndex = filled.indexOf(me!!),
+                                savings = savings,
+                                incomeIndex = income?.let { filled.indexOf(it) }
+                            )
+                        )
                     }
                 }
             }

@@ -20,9 +20,12 @@ import java.text.Normalizer
  * hay forma de saber cuál eres. Así que se resuelve en tres pasos, del más
  * fiable al menos:
  *
- *  1. lo que diga la API, si lo dice,
- *  2. lo que hayas elegido a mano en este móvil (y aquí se queda),
+ *  1. lo que hayas elegido a mano en este móvil (y aquí se queda),
+ *  2. lo que diga la API, si lo dice,
  *  3. una deducción sólo cuando es inequívoca (ver [guess]).
+ *
+ * Lo que salga de 2 o 3 se guarda como si lo hubieras elegido: así no cambia
+ * de una carga a la siguiente.
  *
  * Si ninguno acierta, la pantalla del grupo lo pregunta en vez de mentir con
  * un cero.
@@ -51,10 +54,20 @@ class MemberIdentity(context: Context) {
      * (hoja de gasto, balance, caché del widget, asignación rápida…).
      */
     fun resolve(t: Tricount): Tricount {
-        if (t.memberByUuid(t.activeMembershipUuid) != null) return t
-        val chosen = stored(t.id)?.takeIf { uuid -> t.memberByUuid(uuid) != null }
+        // Lo elegido a mano va primero, incluso por delante de la API: en los
+        // grupos creados desde SmartCount la API apunta al miembro que abrió
+        // el grupo, que no tiene por qué ser el que tú marcaste.
+        stored(t.id)?.takeIf { uuid -> t.memberByUuid(uuid) != null }?.let { uuid ->
+            return if (uuid == t.activeMembershipUuid) t else t.copy(activeMembershipUuid = uuid)
+        }
+        val chosen = t.memberByUuid(t.activeMembershipUuid)?.uuid
             ?: guess(t)?.uuid
             ?: return t
+        // Y lo que se resuelve una vez se queda fijo. La deducción se rehacía
+        // en cada carga, así que renombrar a alguien, añadir un miembro o
+        // cambiar tu nombre en Ajustes te cambiaba de persona sin avisar: era
+        // el «tú» que en algunos grupos se modificaba solo.
+        set(t.id, chosen)
         return t.copy(activeMembershipUuid = chosen)
     }
 

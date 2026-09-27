@@ -44,17 +44,36 @@ data class UiState(
     val openGroupId: Int? = null,
     val openSavingsId: Int? = null,
     /** Los archivados, que la API ya no devuelve y solo viven anotados aquí. */
-    val archived: List<ArchivedGroups.Entry> = emptyList()
+    val archived: List<ArchivedGroups.Entry> = emptyList(),
+    /** Los creados desde SmartCount que aún no están en tu Tricount. */
+    val unlinkedIds: Set<Int> = emptySet()
 ) {
     val selected: Tricount? get() = tricounts.firstOrNull { it.id == selectedId }
 
     fun isSavings(id: Int?): Boolean = id != null && id in savingsIds
+
+    fun isUnlinked(id: Int?): Boolean = id != null && id in unlinkedIds
 
     /** Los grupos normales y los de ahorro, que en casi nada se parecen. */
     val normalGroups: List<Tricount> get() = tricounts.filterNot { isSavings(it.id) }
 
     val savingsGroups: List<Tricount> get() = tricounts.filter { isSavings(it.id) }
 }
+
+/**
+ * Lo que pide la hoja de crear grupo. Los papeles van por posición en la
+ * lista de nombres y no por nombre: dos miembros pueden llamarse igual.
+ */
+data class NewGroup(
+    val title: String,
+    val currency: String,
+    val members: List<String>,
+    /** Cuál de [members] eres tú. */
+    val meIndex: Int,
+    val savings: Boolean = false,
+    /** Quién hace los ingresos; null = un miembro «Ingresos» nuevo. */
+    val incomeIndex: Int? = null
+)
 
 /** Qué movimiento de la bandeja hay que abrir, y con qué grupo ya elegido. */
 data class InboxFocus(val entryId: Long, val groupId: Int? = null)
@@ -74,6 +93,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val identity = appCtx.memberIdentity
     private val archive = appCtx.archivedGroups
     private val registry = appCtx.bankRegistry
+    private val unlinked = appCtx.unlinkedGroups
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -116,7 +136,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        _state.value = _state.value.copy(savingsIds = savings.ids(), archived = archive.all())
+        _state.value = _state.value.copy(
+            savingsIds = savings.ids(),
+            archived = archive.all(),
+            unlinkedIds = unlinked.ids()
+        )
         refresh()
     }
 
@@ -184,20 +208,71 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         syncCache(list, joined.id)
     }
 
-    /** Crea un grupo nuevo, con sus miembros si los hay. */
-    fun createGroup(title: String, currency: String, memberNames: List<String>) = launchGuarded {
-        require(title.isNotBlank()) { "El grupo necesita un nombre" }
+    /**
+     * Crea un grupo nuevo con sus miembros y deja puestos los papeles que se
+     * eligieron en la hoja: quién eres tú y, si es de ahorro, de dónde vienen
+     * los ingresos. Antes el grupo nacía sin saber quién eras y había que
+     * decirlo después, dentro, con el balance en «—» mientras tanto.
+     *
+     * El grupo queda marcado como desvinculado: solo existe para esta
+     * instalación, no en tu cuenta de Tricount (ver UnlinkedGroups).
+     */
+    fun createGroup(g: NewGroup) = launchGuarded {
+        require(g.title.isNotBlank()) { "El grupo necesita un nombre" }
+        val names = g.members.map { it.trim() }
+        require(names.getOrNull(g.meIndex)?.isNotEmpty() == true) { "Elige quién eres tú" }
+        val newIncome = g.savings && g.incomeIndex == null
         _state.value = _state.value.copy(loading = true)
-        val id = client.createTricount(title, currency, memberNames = memberNames)
-        val list = client.listTricounts()
+        val id = client.createTricount(
+            g.title, g.currency,
+            memberNames = if (newIncome) names + Savings.INCOME_MEMBER else names
+        )
+        unlinked.mark(id, true)
+
+        var list = client.listTricounts()
+        list.firstOrNull { it.id == id }?.let { t ->
+            val active = t.members.filter { it.status == "ACTIVE" }
+            // El n-ésimo con ese nombre, para que dos «Ana» no se confundan.
+            fun memberAt(index: Int): Member? {
+                val name = names.getOrNull(index) ?: return null
+                val nth = names.take(index).count { it == name }
+                return active.filter { it.displayName.trim() == name }.getOrNull(nth)
+            }
+            val me = memberAt(g.meIndex)
+            me?.let { identity.set(id, it.uuid) }
+            if (g.savings) {
+                savings.mark(id, true)
+                val income = if (newIncome) {
+                    active.lastOrNull { it.displayName.trim() == Savings.INCOME_MEMBER }
+                } else {
+                    g.incomeIndex?.let(::memberAt)
+                }
+                income?.let { savings.setIncomeMember(id, it.uuid) }
+                me?.let { savings.setSpenderMember(id, it.uuid) }
+            }
+        }
+        // La lista se leyó antes de fijar los papeles: se vuelve a resolver.
+        list = list.map { if (it.id == id) identity.resolve(it) else it }
+
         _state.value = _state.value.copy(
             loading = false,
             tricounts = list,
             selectedId = id,
             openGroupId = id,
-            message = "Grupo «$title» creado"
+            savingsIds = savings.ids(),
+            unlinkedIds = unlinked.ids(),
+            message = "Grupo «${g.title.trim()}» creado"
         )
         syncCache(list, id)
+    }
+
+    /** Quita la marca de desvinculado cuando ya lo has abierto en Tricount. */
+    fun markLinked(tricount: Tricount) {
+        unlinked.mark(tricount.id, false)
+        _state.value = _state.value.copy(
+            unlinkedIds = unlinked.ids(),
+            message = "«${tricount.title}» ya está en tu Tricount"
+        )
     }
 
     fun renameGroup(tricount: Tricount, title: String) = launchGuarded {
@@ -259,10 +334,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun removeGroup(tricount: Tricount) = launchGuarded {
         client.unsyncTricount(tricount)
         savings.mark(tricount.id, false)
+        unlinked.mark(tricount.id, false)
         val list = client.listTricounts()
         _state.value = _state.value.copy(
             tricounts = list,
             savingsIds = savings.ids(),
+            unlinkedIds = unlinked.ids(),
             openGroupId = null,
             openSavingsId = null,
             message = "«${tricount.title}» ya no está en SmartCount"
@@ -576,6 +653,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteInboxEntry(entry: InboxEntry) = launchGuarded { dao.delete(entry.id) }
+
+    /** Limpia la bandeja: todo lo pendiente de categorizar sale de una vez. */
+    fun clearInbox() = launchGuarded {
+        val ids = dao.pendingIds()
+        dao.ignoreAllPending()
+        ids.forEach { DetectionNotifier.cancel(appCtx, it) }
+        _state.value = _state.value.copy(
+            message = if (ids.size == 1) "Bandeja limpia: 1 registro fuera" else "Bandeja limpia: ${ids.size} registros fuera"
+        )
+        syncCache(_state.value.tricounts, _state.value.selectedId)
+    }
 
     /** Silencia el comercio o la persona: no volverá a avisar ni a la bandeja. */
     fun muteSource(entry: InboxEntry, source: String) = launchGuarded {

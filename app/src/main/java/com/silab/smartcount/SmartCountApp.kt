@@ -12,6 +12,7 @@ import com.silab.smartcount.notif.DetectionNotifier
 import com.silab.smartcount.data.repo.ArchivedGroups
 import com.silab.smartcount.data.repo.MemberIdentity
 import com.silab.smartcount.data.repo.SavingsGroups
+import com.silab.smartcount.data.repo.UnlinkedGroups
 import com.silab.smartcount.notif.NotificationRules
 import com.silab.smartcount.update.UpdateNotifier
 
@@ -35,6 +36,8 @@ class SmartCountApp : Application() {
         private set
     lateinit var memberIdentity: MemberIdentity
         private set
+    lateinit var unlinkedGroups: UnlinkedGroups
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -53,6 +56,7 @@ class SmartCountApp : Application() {
         notificationRules = NotificationRules(this)
         savingsGroups = SavingsGroups(this)
         archivedGroups = ArchivedGroups(this)
+        unlinkedGroups = UnlinkedGroups(this)
         DetectionNotifier.ensureChannel(this)
         UpdateNotifier.ensureChannel(this)
         UpdateNotifier.schedule(this)

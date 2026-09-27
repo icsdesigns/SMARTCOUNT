@@ -178,6 +178,17 @@ interface InboxDao {
 
     @Query("DELETE FROM inbox WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("SELECT id FROM inbox WHERE status = 'PENDING'")
+    suspend fun pendingIds(): List<Long>
+
+    /**
+     * Vacía la bandeja. Se marcan como ignorados en vez de borrarlos: la fila
+     * es la que recuerda que esa notificación ya se vio, y sin ella el banco
+     * que la repite la volvería a colar.
+     */
+    @Query("UPDATE inbox SET status = 'IGNORED' WHERE status = 'PENDING'")
+    suspend fun ignoreAllPending(): Int
 }
 
 class Converters {
