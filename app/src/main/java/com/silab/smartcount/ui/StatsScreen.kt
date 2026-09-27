@@ -1,6 +1,11 @@
 package com.silab.smartcount.ui
 
 import androidx.compose.foundation.Canvas
+import com.silab.smartcount.ui.theme.SectionTitle
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -107,10 +111,15 @@ fun StatsScreen(vm: MainViewModel, state: UiState, modifier: Modifier = Modifier
         // de tiempo y si se mira el grupo entero o solo tu parte.
         item {
             val periods = remember(groups) { Stats.periodsOf(groups) }
-            GroupFilter(vm, groups, state.selectedId)
-            Spacer(Modifier.height(8.dp))
-            PeriodFilter(periods, period) { period = it }
-            Spacer(Modifier.height(8.dp))
+            StatsFilters(
+                groups = groups,
+                selected = groups.firstOrNull { it.id == state.selectedId } ?: groups.first(),
+                periods = periods,
+                period = period,
+                onGroup = { vm.select(it) },
+                onPeriod = { period = it }
+            )
+            Spacer(Modifier.height(12.dp))
             SegmentedTabs(listOf("Todo el grupo", "Mi parte"), if (mine) 1 else 0) { mine = it == 1 }
             Spacer(Modifier.height(16.dp))
         }
@@ -118,38 +127,107 @@ fun StatsScreen(vm: MainViewModel, state: UiState, modifier: Modifier = Modifier
         if (effectiveScope == 0) {
             normalStats(this, vm, state, normal, mine, period)
         } else {
-            savingsStats(this, vm, savings, mine, period)
+            savingsStats(this, vm, state, savings, mine, period)
         }
     }
 }
 
+/**
+ * Grupo y periodo, en dos desplegables lado a lado. Antes eran dos tiras de
+ * píldoras que había que arrastrar para ver los grupos y los meses de más
+ * allá; cerrados dicen de un vistazo qué se está mirando.
+ */
 @Composable
-private fun GroupFilter(vm: MainViewModel, groups: List<Tricount>, selectedId: Int?) {
-    if (groups.size <= 1) return
-    val current = groups.firstOrNull { it.id == selectedId } ?: groups.first()
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = ScreenPadding),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+private fun StatsFilters(
+    groups: List<Tricount>,
+    selected: Tricount,
+    periods: List<String>,
+    period: String,
+    onGroup: (Int) -> Unit,
+    onPeriod: (String) -> Unit
+) {
+    fun groupLabel(g: Tricount) = "${g.emoji ?: ""} ${g.title}".trim()
+    fun periodLabel(p: String) = when {
+        p == Stats.ALL_TIME -> "Todo"
+        p.length == 4 -> p
+        else -> monthLabel(p)
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = ScreenPadding),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        items(groups, key = { it.id }) { g ->
-            PillChip("${g.emoji ?: ""} ${g.title}".trim(), g.id == current.id) { vm.select(g.id) }
-        }
+        FilterDropdown(
+            label = "Grupo",
+            value = groupLabel(selected),
+            options = groups.map { it.id to groupLabel(it) },
+            selectedKey = selected.id,
+            onSelect = onGroup,
+            modifier = Modifier.weight(1.3f)
+        )
+        FilterDropdown(
+            label = "Periodo",
+            value = periodLabel(period),
+            options = (listOf(Stats.ALL_TIME) + periods).map { it to periodLabel(it) },
+            selectedKey = period,
+            onSelect = onPeriod,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
+/** Un desplegable con su etiqueta pequeña encima del valor elegido. */
 @Composable
-private fun PeriodFilter(periods: List<String>, selected: String, onSelect: (String) -> Unit) {
-    if (periods.isEmpty()) return
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = ScreenPadding),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item { PillChip("Todo", selected == Stats.ALL_TIME) { onSelect(Stats.ALL_TIME) } }
-        items(periods, key = { it }) { p ->
-            PillChip(
-                if (p.length == 4) p else monthLabel(p),
-                selected == p
-            ) { onSelect(p) }
+private fun <K> FilterDropdown(
+    label: String,
+    value: String,
+    options: List<Pair<K, String>>,
+    selectedKey: K,
+    onSelect: (K) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = SmartTheme.colors
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.chipBackground)
+                .clickable { open = true }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(label.uppercase(), style = SectionTitle, color = c.secondaryText)
+                Text(
+                    value,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = c.primaryText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(if (open) "▴" else "▾", color = c.secondaryText)
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.heightIn(max = 360.dp)
+        ) {
+            options.forEach { (key, text) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text,
+                            color = if (key == selectedKey) c.brand else c.primaryText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    onClick = { onSelect(key); open = false }
+                )
+            }
         }
     }
 }
@@ -195,6 +273,7 @@ private fun normalStats(
 private fun savingsStats(
     scope: LazyListScope,
     vm: MainViewModel,
+    state: UiState,
     groups: List<Tricount>,
     mine: Boolean,
     period: String
@@ -248,7 +327,7 @@ private fun savingsStats(
     // En qué se va lo que sale del grupo de ahorro. Los ingresos quedan fuera:
     // aquí la pregunta es en qué se gasta, no cuánto entró.
     item {
-        val g = groups.first()
+        val g = groups.firstOrNull { it.id == state.selectedId } ?: groups.first()
         Spacer(Modifier.height(12.dp))
         BreakdownSection(
             t = g,

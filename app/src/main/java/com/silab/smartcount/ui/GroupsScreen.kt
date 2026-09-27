@@ -7,9 +7,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -384,18 +386,6 @@ fun GroupDetail(
                         label = "Balance de ${t.title}",
                         amountColor = if (summary.saved < 0) c.negative else c.positive
                     )
-                    Spacer(Modifier.height(12.dp))
-                    FigureRow(
-                        listOf(
-                            Triple("Ingresos", formatMoney(summary.income, t.currency), c.positive),
-                            Triple("Gastos", formatMoney(summary.spent, t.currency), c.negative),
-                            Triple(
-                                "Balance",
-                                formatMoney(summary.saved, t.currency, signed = true),
-                                if (summary.saved < 0) c.negative else c.primaryText
-                            )
-                        )
-                    )
                 } else {
                     val myBalance = Stats.balanceOf(t, t.activeMembershipUuid)
                     Hero(
@@ -413,33 +403,57 @@ fun GroupDetail(
                             else -> c.positive
                         }
                     )
-                    Spacer(Modifier.height(12.dp))
-                    // Las dos cifras de un grupo normal, en el mismo formato
-                    // que las tres de uno de ahorro: lo que llevas gastado tú
-                    // y lo que lleva gastado el grupo. Antes esto era una
-                    // línea de texto que solo daba el total.
-                    FigureRow(
-                        listOf(
-                            Triple("Mis gastos", formatMoney(Stats.myShare(t), t.currency), c.primaryText),
-                            Triple("Gastos del grupo", formatMoney(Stats.totalSpent(t), t.currency), c.primaryText)
-                        )
-                    )
                     Spacer(Modifier.height(8.dp))
                     HeroCaption("${t.activeTransactions.size} movimientos · ${activeMembers.size} personas")
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
             }
 
-            // Quién eres tú aquí. Se pregunta en vez de enseñar un 0,00 que no
-            // significa nada: la API no lo dice en los grupos a los que esta
-            // instalación se unió por enlace, que son casi todos.
+            // Las cifras y los papeles, en dos carteles lado a lado en vez de
+            // una fila de cifras y otra de píldoras. Quién eres tú se pregunta
+            // en vez de enseñar un 0,00 que no significa nada: la API no lo
+            // dice en los grupos a los que esta instalación se unió por enlace.
             item {
-                RolesPanel(
-                    t = t,
-                    savings = isSavings,
-                    incomeMember = incomeMember,
-                    spenderMember = spenderMember,
-                    onClick = { editingRoles = true }
+                val balanceLines = if (isSavings) {
+                    listOf(
+                        Triple("Ingresos", formatMoney(summary.income, t.currency), c.positive),
+                        Triple("Gastos", formatMoney(summary.spent, t.currency), c.negative),
+                        Triple(
+                            "Balance",
+                            formatMoney(summary.saved, t.currency, signed = true),
+                            if (summary.saved < 0) c.negative else c.primaryText
+                        )
+                    )
+                } else {
+                    val myBalance = Stats.balanceOf(t, t.activeMembershipUuid)
+                    listOf(
+                        Triple("Mis gastos", formatMoney(Stats.myShare(t), t.currency), c.primaryText),
+                        Triple("Del grupo", formatMoney(Stats.totalSpent(t), t.currency), c.primaryText),
+                        Triple(
+                            "Balance",
+                            if (t.linkedMember == null) "—" else formatMoney(myBalance, t.currency, signed = true),
+                            when {
+                                t.linkedMember == null -> c.secondaryText
+                                myBalance < 0 -> c.negative
+                                else -> c.positive
+                            }
+                        )
+                    )
+                }
+                val me = t.linkedMember
+                val roleLines = buildList {
+                    if (isSavings && spenderMember != null && spenderMember.uuid == me?.uuid) {
+                        add("Tú / gasto" to me.displayName)
+                    } else {
+                        add("Tú" to me?.displayName)
+                        if (isSavings) add("Gasto" to spenderMember?.displayName)
+                    }
+                    if (isSavings) add("Ingreso" to incomeMember?.displayName)
+                }
+                HeaderCards(
+                    balances = balanceLines,
+                    roles = roleLines,
+                    onRoles = { editingRoles = true }
                 )
             }
 
@@ -613,55 +627,86 @@ internal fun Figure(
 }
 
 /**
- * Los papeles del grupo en una sola franja horizontal: quién eres tú y, si es
- * de ahorro, de dónde vienen los ingresos y quién gasta. Eran tres filas a
- * lo ancho que empujaban los movimientos fuera de la pantalla; como píldoras
- * en fila caben en la altura de una. Cualquiera abre la ventana donde se
- * cambian los tres.
+ * Los dos carteles de la cabecera del grupo, lado a lado y de la misma
+ * altura: las cifras (ingresos, gastos y balance) y los papeles (tú / quien
+ * gasta, y la fuente de ingresos). Tocar el de papeles abre la ventana donde
+ * se cambian.
  */
 @Composable
-private fun RolesPanel(
-    t: Tricount,
-    savings: Boolean,
-    incomeMember: Member?,
-    spenderMember: Member?,
-    onClick: () -> Unit
+private fun HeaderCards(
+    balances: List<Triple<String, String, Color>>,
+    roles: List<Pair<String, String?>>,
+    onRoles: () -> Unit
 ) {
+    val c = SmartTheme.colors
     Row(
         Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .height(IntrinsicSize.Min)
             .padding(horizontal = ScreenPadding),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        RoleChip("Tú", t.linkedMember?.displayName, onClick)
-        if (savings) {
-            RoleChip("Ingresos", incomeMember?.displayName, onClick)
-            RoleChip("Gasta", spenderMember?.displayName, onClick)
+        HeaderCard("Balances", Modifier.weight(1.15f)) {
+            balances.forEach { (label, value, color) -> HeaderLine(label, value, color) }
         }
-        RoleChip("Papeles", "Configurar", onClick, accent = true)
+        HeaderCard("Roles", Modifier.weight(1f), onClick = onRoles) {
+            roles.forEach { (label, name) ->
+                HeaderLine(label, name ?: "Elegir", if (name == null) c.brand else c.primaryText)
+            }
+        }
     }
 }
 
-/** Una píldora de papel: la etiqueta pequeña encima y el nombre debajo. */
 @Composable
-private fun RoleChip(label: String, value: String?, onClick: () -> Unit, accent: Boolean = false) {
+private fun HeaderCard(
+    title: String,
+    modifier: Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
     val c = SmartTheme.colors
     Column(
-        Modifier
-            .clip(RoundedCornerShape(14.dp))
+        modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(16.dp))
             .background(c.chipBackground)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(label.uppercase(), style = SectionTitle, color = c.secondaryText, maxLines = 1)
-        Spacer(Modifier.height(2.dp))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(title.uppercase(), style = SectionTitle, color = c.secondaryText)
+            if (onClick != null) Text("›", color = c.secondaryText)
+        }
+        content()
+    }
+}
+
+/** Una línea de cartel: la etiqueta a la izquierda y el valor a la derecha. */
+@Composable
+private fun HeaderLine(label: String, value: String, color: Color) {
+    val c = SmartTheme.colors
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            value ?: "Elegir",
-            style = MaterialTheme.typography.titleSmall,
-            color = if (value == null || accent) c.brand else c.primaryText,
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = c.secondaryText,
+            maxLines = 1
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = color,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
         )
     }
 }
