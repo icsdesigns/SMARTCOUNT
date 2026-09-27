@@ -67,28 +67,51 @@
 
         <!-- Widgets de pantalla de inicio -->
         <receiver
-            android:name=".widget.BalanceWidgetReceiver"
+            android:name=".widget.GroupsGridWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_balance_name">
+            android:label="@string/widget_grid_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_balance_info" />
+                android:resource="@xml/widget_grid_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.QuickAddWidgetReceiver"
+            android:name=".widget.GroupWidgetReceiver"
             android:exported="true"
-            android:label="@string/widget_quickadd_name">
+            android:label="@string/widget_group_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_quickadd_info" />
+                android:resource="@xml/widget_group_info" />
         </receiver>
+
+        <receiver
+            android:name=".widget.InboxWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_inbox_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_inbox_info" />
+        </receiver>
+
+        <!-- Elegir el grupo del widget de grupo, al ponerlo o al cambiarlo -->
+        <activity
+            android:name=".widget.GroupWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.SmartCount">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
 
     </application>
 </manifest>

@@ -1,9 +1,11 @@
 package com.silab.smartcount.data.cache
 
 import android.content.Context
+import com.silab.smartcount.data.api.Category
 import com.silab.smartcount.data.api.Tricount
 import com.silab.smartcount.data.repo.SavingsGroups
 import com.silab.smartcount.data.repo.Stats
+import com.silab.smartcount.ui.participantsLine
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
@@ -13,12 +15,30 @@ import java.util.Locale
  * Instantánea ligera de los grupos, guardada en disco.
  *
  * La necesitan dos consumidores que no pueden hacer red ni esperar:
- * el widget de la pantalla de inicio (se dibuja en el proceso del launcher) y
- * la notificación de movimiento detectado, que debe ofrecer los grupos al
+ * los widgets de la pantalla de inicio (se dibujan en el proceso del launcher)
+ * y la notificación de movimiento detectado, que debe ofrecer los grupos al
  * instante, incluso sin cobertura.
  */
 @Serializable
 data class CachedMember(val uuid: String, val name: String)
+
+/** El saldo de un miembro, para el widget de grupo. */
+@Serializable
+data class CachedBalance(val uuid: String, val name: String, val amount: Double)
+
+/**
+ * Un movimiento ya listo para pintarse: el widget no tiene el grupo completo
+ * para recalcular nada, así que se guarda tal y como lo enseña la app.
+ */
+@Serializable
+data class CachedMovement(
+    val title: String,
+    val subtitle: String,
+    val emoji: String,
+    val amount: Double,
+    /** En un grupo de ahorro: si entra (true) o sale (false). null en uno normal. */
+    val income: Boolean? = null
+)
 
 @Serializable
 data class CachedGroup(
@@ -40,7 +60,12 @@ data class CachedGroup(
     /** Cuándo se registró el último movimiento del grupo. */
     val lastMovementAt: Long = 0,
     /** Cuándo apareció el grupo en esta app por primera vez. */
-    val addedAt: Long = 0
+    val addedAt: Long = 0,
+    /** Cerrado en Tricount: ya no es de los grupos activos. */
+    val archived: Boolean = false,
+    val balances: List<CachedBalance> = emptyList(),
+    /** Los últimos movimientos, del más reciente al más antiguo. */
+    val movements: List<CachedMovement> = emptyList()
 ) {
     /** La cifra que representa al grupo: lo ahorrado, o lo que te deben. */
     val headline: Double get() = if (savings) income - spent else myBalance
@@ -132,7 +157,29 @@ class GroupCache(context: Context) {
                     incomeUuid = if (isSavings) savings.incomeMember(t)?.uuid else null,
                     spenderUuid = if (isSavings) savings.spenderMember(t)?.uuid else null,
                     lastMovementAt = lastMovementAt(t),
-                    addedAt = addedAt
+                    addedAt = addedAt,
+                    archived = t.isArchived,
+                    balances = Stats.balancesByUuid(t)
+                        .mapNotNull { (uuid, amount) ->
+                            t.memberByUuid(uuid)
+                                ?.takeIf { it.status == "ACTIVE" }
+                                ?.let { CachedBalance(uuid, it.displayName, amount) }
+                        }
+                        .sortedByDescending { it.amount },
+                    movements = t.activeTransactions
+                        .sortedByDescending { it.date }
+                        .take(MAX_MOVEMENTS)
+                        .map { tx ->
+                            CachedMovement(
+                                title = tx.description.ifBlank { "Sin descripción" },
+                                subtitle = participantsLine(tx, t),
+                                emoji = tx.categoryCustom?.takeLast(2)
+                                    ?: Category.fromApi(tx.category)?.emoji
+                                    ?: "•",
+                                amount = tx.amount.abs,
+                                income = if (isSavings) savings.isIncome(t, tx) else null
+                            )
+                        }
                 )
             },
             selectedId = selectedId ?: old.selectedId
@@ -143,6 +190,9 @@ class GroupCache(context: Context) {
 
     companion object {
         private const val KEY = "snapshot"
+
+        /** Lo que cabe con holgura en el widget de grupo, sin engordar la caché. */
+        private const val MAX_MOVEMENTS = 40
         private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
         private val API_DATE = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSSSS", Locale.US)

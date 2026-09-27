@@ -173,7 +173,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (id != null) viewModelScope.launch { syncCache(_state.value.tricounts, id) }
     }
 
-    /** Mantiene al día lo que leen el widget y la notificación. */
+    /**
+     * Abre el grupo que se tocó en un widget, en la pestaña que le toca.
+     * Devuelve si es de ahorro, para que la actividad cambie a esa pestaña.
+     * Si los grupos aún no han llegado, el grupo se abre en cuanto lleguen.
+     */
+    fun openFromWidget(id: Int): Boolean {
+        val isSavings = savings.isSavings(id)
+        if (isSavings) openSavings(id) else openGroup(id)
+        return isSavings
+    }
+
+    /** Mantiene al día lo que leen los widgets y la notificación. */
     private suspend fun syncCache(list: List<Tricount>, selectedId: Int?) {
         runCatching {
             cache.saveGroups(list, selectedId)
@@ -652,7 +663,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         syncCache(_state.value.tricounts, _state.value.selectedId)
     }
 
-    fun deleteInboxEntry(entry: InboxEntry) = launchGuarded { dao.delete(entry.id) }
+    fun deleteInboxEntry(entry: InboxEntry) = launchGuarded {
+        dao.delete(entry.id)
+        syncCache(_state.value.tricounts, _state.value.selectedId)
+    }
 
     /** Limpia la bandeja: todo lo pendiente de categorizar sale de una vez. */
     fun clearInbox() = launchGuarded {

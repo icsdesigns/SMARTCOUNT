@@ -106,13 +106,19 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Rutas de entrada: compartir un enlace de Tricount, el widget "+ Gasto"
-     * y los botones de la notificación de movimiento detectado.
+     * Rutas de entrada: compartir un enlace de Tricount, los widgets y los
+     * botones de la notificación de movimiento detectado.
      */
     private fun handleShare(intent: Intent?) {
         when (intent?.action) {
             Intent.ACTION_SEND ->
                 intent.getStringExtra(Intent.EXTRA_TEXT)?.let { vm.addByLink(it) }
+            // Los widgets: un grupo concreto, o la pestaña de grupos.
+            ACTION_OPEN_GROUP -> {
+                val groupId = intent.getIntExtra(EXTRA_GROUP_ID, -1)
+                if (groupId >= 0) startTab.value = if (vm.openFromWidget(groupId)) "savings" else "groups"
+            }
+            ACTION_OPEN_GROUPS -> startTab.value = "groups"
             ACTION_NEW_EXPENSE -> {
                 startTab.value = "groups"
                 vm.requestNewExpense()
@@ -135,6 +141,9 @@ class MainActivity : ComponentActivity() {
         const val ACTION_NEW_EXPENSE = "com.silab.smartcount.NEW_EXPENSE"
         const val ACTION_OPEN_INBOX = "com.silab.smartcount.OPEN_INBOX"
         const val ACTION_UPDATE = "com.silab.smartcount.UPDATE"
+        const val ACTION_OPEN_GROUP = "com.silab.smartcount.OPEN_GROUP"
+        const val ACTION_OPEN_GROUPS = "com.silab.smartcount.OPEN_GROUPS"
+        const val EXTRA_GROUP_ID = "com.silab.smartcount.GROUP_ID"
     }
 }
 
@@ -191,6 +200,7 @@ fun AppRoot(
         when (startTab.value) {
             "inbox" -> tab = Tab.INBOX
             "groups" -> tab = Tab.GROUPS
+            "savings" -> tab = Tab.SAVINGS
         }
         startTab.value = null
     }

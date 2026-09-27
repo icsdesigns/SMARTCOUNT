@@ -179,6 +179,10 @@ interface InboxDao {
     @Query("DELETE FROM inbox WHERE id = :id")
     suspend fun delete(id: Long)
 
+    /** Lo pendiente de una vez, para el widget: no puede observar un Flow. */
+    @Query("SELECT * FROM inbox WHERE status = 'PENDING' ORDER BY detectedAt DESC")
+    suspend fun pending(): List<InboxEntry>
+
     @Query("SELECT id FROM inbox WHERE status = 'PENDING'")
     suspend fun pendingIds(): List<Long>
 

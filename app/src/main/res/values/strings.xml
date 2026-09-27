@@ -2,8 +2,10 @@
 <resources>
     <string name="app_name">SmartCount</string>
     <string name="notif_service_label">Detección de Bizum y transferencias</string>
-    <string name="widget_balance_desc">Tu saldo en el grupo activo, con accesos a añadir gasto y a la bandeja</string>
-    <string name="widget_quickadd_desc">Añadir un gasto al grupo activo</string>
-    <string name="widget_balance_name">Saldo del grupo</string>
-    <string name="widget_quickadd_name">Añadir gasto</string>
+    <string name="widget_grid_name">Grupos</string>
+    <string name="widget_grid_desc">Todos tus grupos con su saldo, y un botón para añadir un movimiento</string>
+    <string name="widget_group_name">Un grupo</string>
+    <string name="widget_group_desc">Los saldos y movimientos del grupo que elijas</string>
+    <string name="widget_inbox_name">Bandeja pendiente</string>
+    <string name="widget_inbox_desc">Los movimientos detectados que faltan por llevar a un grupo</string>
 </resources>
